@@ -172,17 +172,42 @@
                         </form>
                     </section>
 
-                    <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                            <i data-lucide="target" class="text-red-500"></i> Metas
-                        </h2>
-                        <div class="space-y-3">
+                    <!-- Sección de Gestión de Metas (Edición, Agregar y Botón Guardar Metas) -->
+                    <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-xl font-bold flex items-center gap-2">
+                                <i data-lucide="target" class="text-red-500"></i> Metas
+                            </h2>
+                            <button @click="guardarDatos" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow">
+                                Guardar Metas
+                            </button>
+                        </div>
+
+                        <!-- Lista de metas actuales para editar -->
+                        <div class="space-y-3 max-h-60 overflow-y-auto pr-1">
                             <template x-for="(config, rubro) in rubros" :key="rubro">
-                                <div class="flex items-center justify-between gap-4">
-                                    <label class="text-[10px] font-bold text-slate-500 uppercase flex-1" x-text="rubro"></label>
-                                    <input type="number" x-model.number="rubros[rubro].meta" @change="guardarDatos" class="w-24 text-right text-xs border-slate-200 rounded p-1 border font-mono">
+                                <div class="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <div class="flex flex-col flex-1 truncate">
+                                        <span class="text-[11px] font-bold text-slate-700 truncate" x-text="rubro"></span>
+                                    </div>
+                                    <input type="number" x-model.number="rubros[rubro].meta" class="w-20 text-right text-xs border-slate-200 rounded p-1 border font-mono">
+                                    <button @click="eliminarMeta(rubro)" title="Eliminar Meta" class="text-red-400 hover:text-red-600 font-bold px-1 text-sm">✕</button>
                                 </div>
                             </template>
+                        </div>
+
+                        <hr class="border-slate-100">
+
+                        <!-- Formulario para agregar una nueva meta -->
+                        <div class="space-y-2 pt-1">
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider block">Agregar Nueva Meta</span>
+                            <input type="text" x-model="nuevaMetaNombre" placeholder="Nombre del rubro" class="w-full text-xs border-slate-300 rounded-lg p-2 border">
+                            <div class="flex gap-2">
+                                <input type="number" x-model.number="nuevaMetaMonto" placeholder="Monto meta" class="w-full text-xs border-slate-300 rounded-lg p-2 border font-mono">
+                                <button @click="agregarMeta" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition shadow">
+                                    + Agregar
+                                </button>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -202,7 +227,7 @@
                                         </span>
                                     </div>
                                     <div class="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
-                                        <div :class="config.color" 
+                                        <div :class="config.color || 'bg-blue-500'" 
                                              class="h-full rounded-full transition-all duration-1000 ease-out"
                                              :style="`width: ${Math.min((config.acumulado / config.meta) * 100, 100)}%`"
                                         ></div>
@@ -273,15 +298,12 @@
         appId: "1:52440050546:web:4cc3fd107b5b6b900dcbeb"
     };
 
-    // Inicializar Firebase y Firestore
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // Exponer herramientas de Firebase globalmente para Alpine
     window.db = db;
     window.firebaseFirestore = { doc, getDoc, setDoc };
 
-    // Disparar evento para avisar que Firebase está listo
     window.dispatchEvent(new CustomEvent('firebase-ready'));
 </script>
 
@@ -294,6 +316,8 @@
             loginError: '',
 
             nuevo: { rubro: 'Ingresos diarios', fecha: '', monto: null, medio: 'Efectivo' },
+            nuevaMetaNombre: '',
+            nuevaMetaMonto: null,
             totalGeneral: 0, totalEfectivo: 0, totalBelo: 0,
             historial: [],
             rubros: {
@@ -355,11 +379,20 @@
                         const data = docSnap.data();
                         this.historial = data.historial || [];
                         if (data.rubros) {
-                            // Combinar metas guardadas con los colores originales
+                            // Reconstruir rubros preservando colores e integrando metas guardadas
+                            const rubrosCargados = {};
+                            const coloresDisponibles = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500'];
+                            let i = 0;
                             for (let r in data.rubros) {
-                                if (this.rubros[r]) {
-                                    this.rubros[r].meta = data.rubros[r].meta;
-                                }
+                                rubrosCargados[r] = {
+                                    acumulado: 0,
+                                    meta: data.rubros[r].meta,
+                                    color: this.rubros[r]?.color || coloresDisponibles[i % coloresDisponibles.length]
+                                };
+                                i++;
+                            }
+                            if (Object.keys(rubrosCargados).length > 0) {
+                                this.rubros = rubrosCargados;
                             }
                         }
                     }
@@ -394,13 +427,51 @@
                 }
             },
 
+            agregarMeta() {
+                const nombre = this.nuevaMetaNombre.trim();
+                if(!nombre || !this.nuevaMetaMonto || this.nuevaMetaMonto <= 0) {
+                    alert("Por favor ingrese un nombre y un monto válido para la nueva meta.");
+                    return;
+                }
+                if(this.rubros[nombre]) {
+                    alert("Ya existe una meta con ese nombre.");
+                    return;
+                }
+                const coloresDisponibles = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500'];
+                const colorAleatorio = coloresDisponibles[Math.floor(Math.random() * coloresDisponibles.length)];
+                
+                this.rubros[nombre] = {
+                    acumulado: 0,
+                    meta: parseFloat(this.nuevaMetaMonto),
+                    color: colorAleatorio
+                };
+
+                this.nuevaMetaNombre = '';
+                this.nuevaMetaMonto = null;
+                this.guardarDatos();
+            },
+
+            eliminarMeta(rubro) {
+                if(confirm(`¿Estás seguro de eliminar la meta "${rubro}"?`)) {
+                    delete this.rubros[rubro];
+                    // Si el select de nuevo ingreso apuntaba a este rubro, lo reasignamos si es posible
+                    const remainingRubros = Object.keys(this.rubros);
+                    if(remainingRubros.length > 0 && !this.rubros[this.nuevo.rubro]) {
+                        this.nuevo.rubro = remainingRubros[0];
+                    }
+                    this.guardarDatos();
+                }
+            },
+
             calcularTotales() {
                 for (let r in this.rubros) { this.rubros[r].acumulado = 0; }
                 this.totalGeneral = 0; this.totalEfectivo = 0; this.totalBelo = 0;
 
                 this.historial.forEach(item => {
                     const montoNum = parseFloat(item.monto);
-                    if (this.rubros[item.rubro]) this.rubros[item.rubro].acumulado += montoNum;
+                    if (this.rubros[item.rubro]) {
+                        this.rubros[item.rubro].acumulado += montoNum;
+                    }
                     this.totalGeneral += montoNum;
                     if (item.medio === 'Efectivo') this.totalEfectivo += montoNum;
                     if (item.medio === 'BELO') this.totalBelo += montoNum;
@@ -413,7 +484,6 @@
                     const { doc, setDoc } = window.firebaseFirestore;
                     const docRef = doc(window.db, "contabilidad", "brasil2027");
                     
-                    // Preparamos los datos limpios para la base de datos
                     const rubrosParaGuardar = {};
                     for (let r in this.rubros) {
                         rubrosParaGuardar[r] = { meta: this.rubros[r].meta };
@@ -423,6 +493,7 @@
                         historial: this.historial,
                         rubros: rubrosParaGuardar
                     });
+                    alert("¡Metas y datos guardados exitosamente en la base de datos!");
                 } catch (error) {
                     console.error("Error al guardar en Firebase:", error);
                     alert("Hubo un error al sincronizar con la base de datos.");
@@ -446,10 +517,16 @@
                         const json = JSON.parse(e.target.result);
                         if (json.historial && json.rubros) {
                             this.historial = json.historial;
+                            this.rubros = {};
+                            const coloresDisponibles = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500'];
+                            let i = 0;
                             for (let r in json.rubros) {
-                                if (this.rubros[r]) {
-                                    this.rubros[r].meta = json.rubros[r].meta;
-                                }
+                                this.rubros[r] = {
+                                    acumulado: 0,
+                                    meta: json.rubros[r].meta,
+                                    color: coloresDisponibles[i % coloresDisponibles.length]
+                                };
+                                i++;
                             }
                             await this.guardarDatos();
                             alert("¡Backup restaurado y sincronizado con la base de datos!");
@@ -462,7 +539,7 @@
             },
 
             formatearMoneda(valor) {
-                return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valor);
+                return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valor || 0);
             },
 
             formatearFecha(f) {
