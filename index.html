@@ -9,9 +9,8 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         [x-cloak] { display: none !important; }
-        /* Degradado personalizado solicitado */
         .bg-login-gradient {
-            background: linear-gradient(135deg, #1e40af 0%, #38bdf8 100%); /* Azul oscuro a Celeste */
+            background: linear-gradient(135deg, #1e40af 0%, #38bdf8 100%);
         }
     </style>
 </head>
@@ -85,7 +84,7 @@
                             <i data-lucide="palm-tree" class="w-8 h-8 text-amber-300"></i>
                             <h1 class="text-3xl font-bold italic">Vacaciones 2027 - Brasil 🇧🇷</h1>
                         </div>
-                        <p class="opacity-90 font-medium">Contabilidad: Mayo 2026 - Diciembre 2026</p>
+                        <p class="opacity-90 font-medium">Contabilidad: Mayo 2026 - Diciembre 2026 (Base de Datos Online)</p>
                     </div>
 
                     <div class="flex flex-col items-end gap-3">
@@ -260,16 +259,40 @@
 
 </div>
 
+<!-- Firebase SDKs (Compatibles con ES Modules vía CDN) -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyDnD92lAkZYsP9mgIDolabWl-vM_VHmy4I",
+        authDomain: "bitacora-brasil-2027.firebaseapp.com",
+        projectId: "bitacora-brasil-2027",
+        storageBucket: "bitacora-brasil-2027.firebasestorage.app",
+        messagingSenderId: "52440050546",
+        appId: "1:52440050546:web:4cc3fd107b5b6b900dcbeb"
+    };
+
+    // Inicializar Firebase y Firestore
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Exponer herramientas de Firebase globalmente para Alpine
+    window.db = db;
+    window.firebaseFirestore = { doc, getDoc, setDoc };
+
+    // Disparar evento para avisar que Firebase está listo
+    window.dispatchEvent(new CustomEvent('firebase-ready'));
+</script>
+
 <script>
     function gestorApp() {
         return {
-            // Lógica de Autenticación
             isAuthenticated: false,
             currentUser: '',
             credentials: { user: '', password: '' },
             loginError: '',
 
-            // Datos de la Aplicación
             nuevo: { rubro: 'Ingresos diarios', fecha: '', monto: null, medio: 'Efectivo' },
             totalGeneral: 0, totalEfectivo: 0, totalBelo: 0,
             historial: [],
@@ -277,36 +300,41 @@
                 'Ingresos diarios': { acumulado: 0, meta: 100000, color: 'bg-blue-500' },
                 'Cursos de Formación': { acumulado: 0, meta: 50000, color: 'bg-purple-500' },
                 'Ingresos Consultas por semana': { acumulado: 0, meta: 80000, color: 'bg-amber-500' },
-                'Venta textos': { acumulado: 0, meta: 30000, color: 'bg-emerald-500' },
+                'Ingresos Ventas Texto': { acumulado: 0, meta: 30000, color: 'bg-emerald-500' },
                 'Ingreso SAC 2': { acumulado: 0, meta: 30000, color: 'bg-rose-500' }
             },
 
             init() {
-                // Verificar si ya estaba logueado en esta sesión
                 const session = sessionStorage.getItem('vb2027_session');
                 if (session) {
                     this.isAuthenticated = true;
                     this.currentUser = session;
-                    this.cargarDatosApp();
+                    this.esperarFirebaseYcargar();
                 }
-                
-                // Cargar íconos Lucide siempre (para el login y la app)
                 this.renderIcons();
             },
 
-            // Funciones de Login
+            esperarFirebaseYcargar() {
+                if (window.db) {
+                    this.cargarDatosApp();
+                } else {
+                    window.addEventListener('firebase-ready', () => {
+                        this.cargarDatosApp();
+                    });
+                }
+            },
+
             login() {
                 this.loginError = '';
-                // Credenciales específicas solicitadas
                 if (this.credentials.user === 'Drpereyra' && this.credentials.password === '235689') {
                     this.isAuthenticated = true;
                     this.currentUser = this.credentials.user;
                     sessionStorage.setItem('vb2027_session', this.currentUser);
-                    this.credentials = { user: '', password: '' }; // Limpiar
-                    this.cargarDatosApp();
+                    this.credentials = { user: '', password: '' };
+                    this.esperarFirebaseYcargar();
                 } else {
                     this.loginError = 'Usuario o contraseña incorrectos.';
-                    this.credentials.password = ''; // Limpiar solo password
+                    this.credentials.password = '';
                 }
             },
 
@@ -317,21 +345,34 @@
                 this.renderIcons();
             },
 
-            // Funciones de la Aplicación Principal
-            cargarDatosApp() {
-                const guardado = localStorage.getItem('vacacionesBrasil2027_v2');
-                if (guardado) {
-                    const data = JSON.parse(guardado);
-                    this.historial = data.historial || [];
-                    this.rubros = data.rubros || this.rubros;
+            async cargarDatosApp() {
+                try {
+                    const { doc, getDoc } = window.firebaseFirestore;
+                    const docRef = doc(window.db, "contabilidad", "brasil2027");
+                    const docSnap = await getDoc(docRef);
+
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        this.historial = data.historial || [];
+                        if (data.rubros) {
+                            // Combinar metas guardadas con los colores originales
+                            for (let r in data.rubros) {
+                                if (this.rubros[r]) {
+                                    this.rubros[r].meta = data.rubros[r].meta;
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error al cargar desde Firebase:", error);
                 }
+
                 this.calcularTotales();
                 this.nuevo.fecha = new Date().toISOString().split('T')[0];
                 this.renderIcons();
             },
 
             renderIcons() {
-                // Pequeño delay para que Alpine renderice el DOM antes de que Lucide busque los íconos
                 setTimeout(() => {
                     if (typeof lucide !== 'undefined') {
                         lucide.createIcons();
@@ -366,12 +407,26 @@
                 });
             },
 
-            guardarDatos() {
+            async guardarDatos() {
                 this.calcularTotales();
-                localStorage.setItem('vacacionesBrasil2027_v2', JSON.stringify({
-                    historial: this.historial,
-                    rubros: this.rubros
-                }));
+                try {
+                    const { doc, setDoc } = window.firebaseFirestore;
+                    const docRef = doc(window.db, "contabilidad", "brasil2027");
+                    
+                    // Preparamos los datos limpios para la base de datos
+                    const rubrosParaGuardar = {};
+                    for (let r in this.rubros) {
+                        rubrosParaGuardar[r] = { meta: this.rubros[r].meta };
+                    }
+
+                    await setDoc(docRef, {
+                        historial: this.historial,
+                        rubros: rubrosParaGuardar
+                    });
+                } catch (error) {
+                    console.error("Error al guardar en Firebase:", error);
+                    alert("Hubo un error al sincronizar con la base de datos.");
+                }
             },
 
             exportarDatos() {
@@ -386,16 +441,22 @@
 
             importarDatos(event) {
                 const reader = new FileReader();
-                reader.onload = (e) => {
+                reader.onload = async (e) => {
                     try {
                         const json = JSON.parse(e.target.result);
                         if (json.historial && json.rubros) {
                             this.historial = json.historial;
-                            this.rubros = json.rubros;
-                            this.guardarDatos();
-                            alert("¡Backup restaurado con éxito!");
+                            for (let r in json.rubros) {
+                                if (this.rubros[r]) {
+                                    this.rubros[r].meta = json.rubros[r].meta;
+                                }
+                            }
+                            await this.guardarDatos();
+                            alert("¡Backup restaurado y sincronizado con la base de datos!");
                         }
-                    } catch (err) { alert("Error al leer el archivo de backup."); }
+                    } catch (err) { 
+                        alert("Error al leer el archivo de backup."); 
+                    }
                 };
                 reader.readAsText(event.target.files[0]);
             },
