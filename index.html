@@ -77,8 +77,9 @@
     <template x-if="isAuthenticated">
         <div class="max-w-5xl mx-auto p-4 md:p-8">
             
-            <header class="bg-green-600 p-6 rounded-2xl text-white shadow-lg mb-8 relative overflow-hidden">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-white/20 pb-4 mb-4 gap-4">
+            <header class="bg-green-600 p-6 rounded-2xl text-white shadow-lg mb-8 relative overflow-hidden space-y-6">
+                <!-- Título y Opciones -->
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-white/20 pb-4 gap-4">
                     <div>
                         <div class="flex items-center gap-3">
                             <i data-lucide="palm-tree" class="w-8 h-8 text-amber-300"></i>
@@ -106,7 +107,28 @@
                     </div>
                 </div>
 
-                <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <!-- Barra de Progreso General de Metas (NUEVO) -->
+                <div class="bg-black/15 p-4 rounded-xl border border-white/10">
+                    <div class="flex justify-between items-end mb-2">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="award" class="w-5 h-5 text-amber-300"></i>
+                            <span class="text-xs font-bold uppercase tracking-wider text-white/90">Progreso Total de Metas</span>
+                        </div>
+                        <span class="text-xs font-mono font-bold">
+                            <span x-text="formatearMoneda(totalGeneral)"></span> / 
+                            <span class="text-amber-300" x-text="formatearMoneda(metaTotalGeneral)"></span>
+                            <span class="text-[10px] opacity-80 ml-1" x-text="`(${porcentajeProgresoGlobal}%)`"></span>
+                        </span>
+                    </div>
+                    <div class="w-full bg-black/30 rounded-full h-3 overflow-hidden shadow-inner p-0.5">
+                        <div class="bg-amber-300 h-full rounded-full transition-all duration-1000 ease-out shadow"
+                             :style="`width: ${porcentajeProgresoGlobal}%`">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detalle de Medios de Pago y Total Recaudado -->
+                <div class="flex flex-col md:flex-row justify-between items-center gap-4 pt-2">
                     <div class="flex gap-6 text-sm font-semibold justify-center md:justify-start bg-black/10 p-3 rounded-xl inline-flex w-full md:w-auto">
                         <div class="flex items-center">
                             <span class="w-3 h-3 bg-white/50 rounded-full mr-2"></span>
@@ -172,7 +194,7 @@
                         </form>
                     </section>
 
-                    <!-- Sección de Gestión de Metas (Edición, Agregar y Botón Guardar Metas) -->
+                    <!-- Sección de Gestión de Metas -->
                     <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
                         <div class="flex justify-between items-center">
                             <h2 class="text-xl font-bold flex items-center gap-2">
@@ -318,7 +340,11 @@
             nuevo: { rubro: 'Ingresos diarios', fecha: '', monto: null, medio: 'Efectivo' },
             nuevaMetaNombre: '',
             nuevaMetaMonto: null,
-            totalGeneral: 0, totalEfectivo: 0, totalBelo: 0,
+            totalGeneral: 0, 
+            totalEfectivo: 0, 
+            totalBelo: 0,
+            metaTotalGeneral: 0,
+            porcentajeProgresoGlobal: 0,
             historial: [],
             rubros: {
                 'Ingresos diarios': { acumulado: 0, meta: 100000, color: 'bg-blue-500' },
@@ -379,14 +405,13 @@
                         const data = docSnap.data();
                         this.historial = data.historial || [];
                         if (data.rubros) {
-                            // Reconstruir rubros preservando colores e integrando metas guardadas
                             const rubrosCargados = {};
                             const coloresDisponibles = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500'];
                             let i = 0;
                             for (let r in data.rubros) {
                                 rubrosCargados[r] = {
                                     acumulado: 0,
-                                    meta: data.rubros[r].meta,
+                                    meta: Number(data.rubros[r].meta) || 0,
                                     color: this.rubros[r]?.color || coloresDisponibles[i % coloresDisponibles.length]
                                 };
                                 i++;
@@ -454,7 +479,6 @@
             eliminarMeta(rubro) {
                 if(confirm(`¿Estás seguro de eliminar la meta "${rubro}"?`)) {
                     delete this.rubros[rubro];
-                    // Si el select de nuevo ingreso apuntaba a este rubro, lo reasignamos si es posible
                     const remainingRubros = Object.keys(this.rubros);
                     if(remainingRubros.length > 0 && !this.rubros[this.nuevo.rubro]) {
                         this.nuevo.rubro = remainingRubros[0];
@@ -465,10 +489,17 @@
 
             calcularTotales() {
                 for (let r in this.rubros) { this.rubros[r].acumulado = 0; }
-                this.totalGeneral = 0; this.totalEfectivo = 0; this.totalBelo = 0;
+                this.totalGeneral = 0; 
+                this.totalEfectivo = 0; 
+                this.totalBelo = 0;
+                this.metaTotalGeneral = 0;
+
+                for (let r in this.rubros) {
+                    this.metaTotalGeneral += Number(this.rubros[r].meta) || 0;
+                }
 
                 this.historial.forEach(item => {
-                    const montoNum = parseFloat(item.monto);
+                    const montoNum = parseFloat(item.monto) || 0;
                     if (this.rubros[item.rubro]) {
                         this.rubros[item.rubro].acumulado += montoNum;
                     }
@@ -476,6 +507,12 @@
                     if (item.medio === 'Efectivo') this.totalEfectivo += montoNum;
                     if (item.medio === 'BELO') this.totalBelo += montoNum;
                 });
+
+                if (this.metaTotalGeneral > 0) {
+                    this.porcentajeProgresoGlobal = Math.min(Math.round((this.totalGeneral / this.metaTotalGeneral) * 100), 100);
+                } else {
+                    this.porcentajeProgresoGlobal = 0;
+                }
             },
 
             async guardarDatos() {
@@ -523,7 +560,7 @@
                             for (let r in json.rubros) {
                                 this.rubros[r] = {
                                     acumulado: 0,
-                                    meta: json.rubros[r].meta,
+                                    meta: Number(json.rubros[r].meta) || 0,
                                     color: coloresDisponibles[i % coloresDisponibles.length]
                                 };
                                 i++;
